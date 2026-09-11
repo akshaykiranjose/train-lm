@@ -1,0 +1,13 @@
+/.venv/
+/data/raw/*
+/data/encoded/*
+/data/tokenizer/*
+/runs/*
+!/data/raw/.gitkeep
+!/data/encoded/.gitkeep
+!/data/tokenizer/.gitkeep
+!/runs/.gitkeep
+__pycache__/
+*.py[cod]
+.pytest_cache/
+

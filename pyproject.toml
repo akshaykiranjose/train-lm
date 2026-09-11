@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "efficient-attention-lm"
+version = "0.1.0"
+description = "CS336 Spring 2025-aligned TinyStories language-model baseline"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.26",
+  "tqdm>=4.66",
+  "pyyaml>=6.0",
+  "tokenizers>=0.20",
+  "torch>=2.3",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/efficient_attention_lm"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+

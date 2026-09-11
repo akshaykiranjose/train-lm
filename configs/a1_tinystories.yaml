@@ -1,0 +1,57 @@
+seed: 42
+
+data:
+  name: TinyStoriesV2-GPT4
+  train_file: data/raw/TinyStoriesV2-GPT4-train.txt
+  valid_file: data/raw/TinyStoriesV2-GPT4-valid.txt
+  train_tokens: data/encoded/train.bin
+  valid_tokens: data/encoded/valid.bin
+  tokenizer: data/tokenizer/tokenizer.json
+  vocab_size: 10000
+  context_length: 256
+
+model:
+  d_model: 512
+  d_ff: 1344
+  num_layers: 4
+  num_heads: 16
+  rope_theta: 10000.0
+  rms_norm_eps: 1.0e-5
+  dropout: 0.0
+  tie_embeddings: false
+  bias: false
+  attention_type: manual_softmax
+
+training:
+  total_tokens: 327680000
+  effective_batch_size: 256
+  micro_batch_size: 16
+  gradient_accumulation_steps: 16
+  optimizer_steps: 5000
+  precision: bf16
+
+optimizer:
+  type: AdamW
+  max_lr: 1.0e-3
+  min_lr: 1.0e-4
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+  weight_decay: 0.1
+
+scheduler:
+  type: cosine_with_linear_warmup
+  warmup_steps: 500
+  cosine_end_step: 5000
+
+gradient_clipping:
+  max_l2_norm: 1.0
+
+evaluation:
+  interval_steps: 100
+  num_batches: 50
+  batch_size: 32
+  seed: 12345
+
+checkpointing:
+  interval_steps: 500
+
