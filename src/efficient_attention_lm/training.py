@@ -261,7 +261,7 @@ def train(
     step = 0
     tokens_seen = 0
     best_validation_loss = math.inf
-    if resume is not None:
+    if resume is not None: # resume is the path 
         payload = load_checkpoint(resume, model=model, optimizer=optimizer, device=device)
         step = int(payload["step"])
         tokens_seen = int(payload["tokens_seen"])
