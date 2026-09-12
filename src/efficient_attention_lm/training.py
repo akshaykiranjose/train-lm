@@ -8,6 +8,8 @@ import time
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
+from datetime import datetime, timezone
+from importlib import metadata as importlib_metadata
 
 import numpy as np
 import torch
@@ -95,11 +97,45 @@ def evaluate_model(
     model.train(was_training)
     return sum(losses) / len(losses)
 
+def installed_package_versions() -> dict[str, str]:
+    packages = {
+        dist.metadata["Name"] : dist.version
+        for dist in importlib_metadata.distributions() if dist.metadata["Name"]
+    }
+    return dict(sorted(packages.items(), key=lambda item: item[0].lower()))
 
-def environment_metadata(config: dict[str, Any], root: Path) -> dict[str, Any]:
+def nvidia_driver_version() -> str | None:
+    if not torch.cuda.is_available():
+        return None
+
+    try:
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=driver_version",
+                "--format=csv,noheader",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.strip().splitlines()[0].strip()
+    except (OSError, subprocess.CalledProcessError, IndexError):
+        return None
+
+    
+def environment_metadata(
+                        config: dict[str, Any], 
+                        root: Path, 
+                        model: DecoderLM,
+                        run_started_at_utc: str,) -> dict[str, Any]:
     def optional_hash(path_value: str) -> str | None:
         path = resolve_project_path(root, path_value)
         return sha256_file(path) if path.exists() else None
+
+    commit = None
+    git_branch = None
+    git_dirty = None
 
     try:
         commit = subprocess.run(
@@ -109,8 +145,28 @@ def environment_metadata(config: dict[str, Any], root: Path) -> dict[str, Any]:
             capture_output=True,
             text=True,
         ).stdout.strip()
+
+        git_branch = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+
+        git_dirty = bool(status.strip())
+
     except (OSError, subprocess.CalledProcessError):
         commit = None
+
     gpu_name = None
     gpu_vram = None
     if torch.cuda.is_available():
@@ -120,12 +176,23 @@ def environment_metadata(config: dict[str, Any], root: Path) -> dict[str, Any]:
     data = config["data"]
     return {
         "git_commit": commit,
+        "git_branch": git_branch,
+        "git_dirty": git_dirty,
         "random_seed": int(config["seed"]),
+        "run_started_at_utc": run_started_at_utc,
         "python_version": platform.python_version(),
         "pytorch_version": torch.__version__,
         "cuda_runtime_version": torch.version.cuda,
+        "nvidia_driver_version": nvidia_driver_version(),
         "gpu_name": gpu_name,
         "gpu_vram_bytes": gpu_vram,
+        "parameter_count": model.num_parameters,
+        "trainable_parameter_count": sum(
+            parameter.numel()
+            for parameter in model.parameters()
+            if parameter.requires_grad
+        ),
+        "installed_packages": installed_package_versions(),
         "precision": config["training"]["precision"],
         "tokenizer_sha256": optional_hash(data["tokenizer"]),
         "dataset_file_sha256": {
@@ -141,12 +208,14 @@ def _memory_metrics(device: torch.device) -> dict[str, float]:
             "gpu_memory_allocated_mb": 0.0,
             "gpu_memory_reserved_mb": 0.0,
             "gpu_peak_memory_allocated_mb": 0.0,
+            "gpu_peak_memory_reserved_mb": 0.0,
         }
     divisor = 1024**2
     return {
         "gpu_memory_allocated_mb": torch.cuda.memory_allocated() / divisor,
         "gpu_memory_reserved_mb": torch.cuda.memory_reserved() / divisor,
-        "gpu_peak_memory_allocated_mb": torch.cuda.max_memory_allocated() / divisor,
+        "gpu_peak_memory_allocated_mb": (torch.cuda.max_memory_allocated() / divisor),
+        "gpu_peak_memory_reserved_mb": (torch.cuda.max_memory_reserved() / divisor),
     }
 
 
@@ -163,11 +232,20 @@ def train(
     checkpoints = run_dir / "checkpoints"
     checkpoints.mkdir(exist_ok=True)
     save_config(config, run_dir / "config.yaml")
-    write_json(run_dir / "metadata.json", environment_metadata(config, root))
+
     (run_dir / "samples.txt").touch(exist_ok=True)
+
+    run_started_at_utc = datetime.now(timezone.utc).isoformat()
 
     set_seed(int(config["seed"]))
     model = DecoderLM(model_config_from_dict(config)).to(device)
+
+    metadata =  environment_metadata(config, root, model, run_started_at_utc)
+    metadata["status"] = "running"
+    metadata["run_completed_at_utc"] = None
+
+    write_json(run_dir / "metadata.json", metadata)
+
     optimizer = make_optimizer(model, config)
     data = config["data"]
     train_sampler = RandomWindowSampler(
@@ -205,7 +283,37 @@ def train(
     precision = str(training["precision"])
     logger = CSVLogger(run_dir / "metrics.csv")
     start_time = time.perf_counter()
+
     model.train()
+
+    # logging validation at step zero
+
+    if step == 0:
+        initial_validation_loss = evaluate_model(
+            model,
+            valid_sampler,
+            config,
+            device,
+        )
+
+        logger.log(
+            {
+                "optimizer_step": 0,
+                "tokens_seen": 0,
+                "train_loss": None,
+                "validation_loss": initial_validation_loss,
+                "validation_perplexity": math.exp(initial_validation_loss),
+                "learning_rate": cosine_warmup_lr(0, config),
+                "gradient_norm": None,
+                "wallclock_seconds": time.perf_counter() - start_time,
+                "step_time_ms": None,
+                "tokens_per_second": None,
+                **_memory_metrics(device),
+            }
+        )
+    
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
 
     progress = tqdm(total=total_steps,
                     initial=step,
@@ -230,9 +338,12 @@ def train(
         learning_rate = cosine_warmup_lr(step, config)
         for group in optimizer.param_groups:
             group["lr"] = learning_rate
-        torch.nn.utils.clip_grad_norm_(
-            model.parameters(), float(config["gradient_clipping"]["max_l2_norm"])
-        )
+
+        gradient_norm = torch.nn.utils.clip_grad_norm_(
+                            model.parameters(),
+                            float(config["gradient_clipping"]["max_l2_norm"]),
+                        )
+        
         optimizer.step()
         step += 1
         tokens_seen += tokens_per_step
@@ -266,6 +377,7 @@ def train(
                     math.exp(validation_loss) if validation_loss is not None else None
                 ),
                 "learning_rate": learning_rate,
+                "gradient_norm": float(gradient_norm),
                 "wallclock_seconds": time.perf_counter() - start_time,
                 "step_time_ms": step_seconds * 1000,
                 "tokens_per_second": tokens_per_step / step_seconds,
@@ -297,5 +409,10 @@ def train(
                 best_validation_loss=best_validation_loss,
             )
     progress.close()
+
+    #updating the metadata if/when training completes
+    metadata["status"] = "completed"
+    metadata["run_completed_at_utc"] = datetime.now(timezone.utc).isoformat()
+    write_json(run_dir / "metadata.json", metadata)
 
     return checkpoints / "latest.pt"

@@ -24,9 +24,9 @@ Start with four attention variants:
 2. **PyTorch optimized causal softmax attention (SDPA)**
 3. **Simple causal linear-attention baseline**
    - e.g. feature map  
-     \[
+     $$
      \phi(x)=\mathrm{ELU}(x)+1
-     \]
+     $$
 4. **One or two paper-derived efficient-attention mechanisms**
 
 Candidate papers from the existing reading list:
@@ -58,38 +58,38 @@ For every attention replacement, verify that token \(i\) cannot depend on any to
 
 Standard causal attention computes:
 
-\[
+$$
 \operatorname{softmax}
 \left(
 \frac{QK^\top}{\sqrt{d_h}}+M
 \right)V
-\]
+$$
 
 where:
 
-\[
+$$
 M_{ij}=
 \begin{cases}
 0, & j\leq i \\
 -\infty, & j>i
 \end{cases}
-\]
+$$
 
 For kernelized linear attention, a causal implementation typically requires prefix accumulation:
 
-\[
+$$
 S_i=\sum_{j=1}^{i}\phi(k_j)v_j^\top
-\]
+$$
 
-\[
+$$
 z_i=\sum_{j=1}^{i}\phi(k_j)
-\]
+$$
 
-\[
+$$
 y_i=
 \frac{\phi(q_i)S_i}
 {\phi(q_i)z_i}
-\]
+$$
 
 This distinction is critical because a non-causal linear-attention implementation may accidentally use information from future tokens.
 
@@ -305,21 +305,21 @@ The research code should make attention replacement isolated and explicit.
 
 Implement attention manually:
 
-\[
+$$
 Q=XW_Q,\quad K=XW_K,\quad V=XW_V
-\]
+$$
 
-\[
+$$
 A=
 \operatorname{softmax}
 \left(
 \frac{QK^\top}{\sqrt{d_h}}+M
 \right)
-\]
+$$
 
-\[
+$$
 Y=AV
-\]
+$$
 
 The purpose is correctness and transparency.
 
@@ -364,9 +364,9 @@ Before implementing a research paper, build a basic linear-attention baseline.
 
 Example feature map:
 
-\[
+$$
 \phi(x)=\operatorname{ELU}(x)+1
-\]
+$$
 
 This provides:
 
@@ -396,11 +396,11 @@ target = [t1, t2, ..., tn]
 
 Optimize cross entropy:
 
-\[
+$$
 \mathcal{L}
 =
 -\sum_t \log p(x_{t+1}\mid x_{\leq t})
-\]
+$$
 
 Main quality metrics:
 
@@ -711,21 +711,21 @@ This benchmark is especially important because standard attention keeps historic
 
 For conventional attention:
 
-\[
+$$
 \text{KV cache memory} = O(Td)
-\]
+$$
 
 Some causal linear-attention formulations instead maintain a recurrent state independent of sequence length.
 
 Example:
 
-\[
+$$
 S_t=S_{t-1}+\phi(k_t)v_t^\top
-\]
+$$
 
-\[
+$$
 z_t=z_{t-1}+\phi(k_t)
-\]
+$$
 
 This makes decoding-state growth a central research question.
 
@@ -854,9 +854,9 @@ Possible result:
 
 This would imply a crossover context length:
 
-\[
+$$
 T^*
-\]
+$$
 
 such that:
 

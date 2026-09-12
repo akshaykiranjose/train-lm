@@ -12,12 +12,14 @@ METRIC_FIELDS = [
     "validation_loss",
     "validation_perplexity",
     "learning_rate",
+    "gradient_norm",
     "wallclock_seconds",
     "step_time_ms",
     "tokens_per_second",
     "gpu_memory_allocated_mb",
     "gpu_memory_reserved_mb",
     "gpu_peak_memory_allocated_mb",
+    "gpu_peak_memory_reserved_mb",
 ]
 
 
