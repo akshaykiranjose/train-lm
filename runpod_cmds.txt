@@ -1,0 +1,3 @@
+copy from runpod storage to local device
+
+scp -r -P 13404 -i ~/.ssh/id_ed25519 root@47.47.180.23:/workspace/train-lm/runs/. runs/
